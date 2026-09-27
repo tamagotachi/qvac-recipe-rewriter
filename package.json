@@ -1,0 +1,10 @@
+{
+  "name": "qvac-recipe-rewriter",
+  "version": "1.0.0",
+  "description": "Recipe Rewriter: paste any recipe and an on-device AI rewrites it for your diet (vegan, vegetarian, gluten-free, dairy-free) and explains each swap, while the page scales the servings exactly. Powered by the QVAC SDK.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "@qvac/sdk": "^0.19.0" },
+  "license": "MIT"
+}
