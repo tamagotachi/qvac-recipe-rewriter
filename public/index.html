@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recipe Rewriter</title>
+<style>
+  :root { --bg: #f5f8f1; --ink: #23301b; --muted: #677560; --line: #d9e4cf; --card: #fff; --leaf: #5c940d; --tomato: #e8590c; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 26px 16px 56px; }
+  h1 { font: 800 34px/1.1 Georgia, serif; margin: 0; } h1 span { color: var(--leaf); } .sub { color: var(--muted); margin: 4px 0 8px; }
+  #status { font-size: 13px; color: var(--muted); margin: 0 0 12px; } #status.ok { color: var(--leaf); } #status.err { color: #c92a2a; }
+  .cols { display: grid; grid-template-columns: 1fr 1.15fr; gap: 16px; align-items: start; } @media (max-width: 820px) { .cols { grid-template-columns: 1fr; } }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-bottom: 16px; } .panel h2 { font-size: 17px; margin: 0 0 8px; }
+  textarea, select, input { font: inherit; padding: 9px 12px; border: 2px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); } textarea { width: 100%; min-height: 300px; resize: vertical; font-size: 15px; } input[type=number] { width: 80px; }
+  textarea:focus-visible, select:focus-visible, input:focus-visible, button:focus-visible { outline: 3px solid #a9e34b; outline-offset: 2px; }
+  button { font: inherit; font-weight: 700; padding: 10px 18px; border: 0; border-radius: 10px; background: var(--leaf); color: #fff; cursor: pointer; }
+  button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); padding: 6px 12px; font-size: 14px; } button.busy { opacity: .55; cursor: progress; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; } .note { color: var(--muted); font-size: 14px; min-height: 20px; margin: 8px 0 0; }
+  #rTitle { font: 700 26px/1.2 Georgia, serif; margin: 0 0 6px; } .swaps { width: 100%; border-collapse: collapse; font-size: 15px; } .swaps th, .swaps td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; } .swaps th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .swaps s { color: var(--tomato); } .swaps b { color: var(--leaf); } ul.ing { padding-left: 20px; } ul.ing li.scaled::marker { color: var(--leaf); } ol.steps li { margin-bottom: 6px; }
+  .scaleNote { font-size: 13px; color: var(--leaf); font-weight: 700; } .fine { color: var(--muted); font-size: 13px; } .hidden { display: none; }
+  @media print { body { background: #fff; } .cols > section:first-child, #status, .sub, .row, .fine { display: none !important; } .cols { display: block; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Recipe <span>Rewriter</span></h1>
+  <p class="sub">Paste any recipe. Get it rewritten for your diet, with every swap explained, and scaled to the number of servings you need.</p>
+  <p id="status">Checking the AI recipe rewriter...</p>
+  <div class="cols">
+    <section class="panel">
+      <textarea id="recipe" placeholder="Paste a recipe: ingredients and steps..." aria-label="Your recipe"></textarea>
+      <div class="row"><label for="diet">Make it</label><select id="diet"><option value="vegan">Vegan</option><option value="vegetarian">Vegetarian</option><option value="gluten-free">Gluten-free</option><option value="dairy-free">Dairy-free</option><option value="less sugar">Less sugar</option></select></div>
+      <div class="row"><label for="from">Recipe serves</label><input id="from" type="number" min="1" max="50" value="4"><label for="to">I need</label><input id="to" type="number" min="1" max="100" value="4"><span class="fine">servings</span></div>
+      <div class="row"><button id="go">Rewrite recipe</button><button class="ghost" id="sample">Try a sample</button></div>
+      <p class="note" id="note"></p>
+    </section>
+    <section id="out" class="hidden" aria-live="polite">
+      <div class="panel"><h2 id="rTitle"></h2><p class="scaleNote" id="scaleNote"></p>
+        <h2 style="margin-top:12px">What changed</h2><table class="swaps"><thead><tr><th>Instead of</th><th>Use</th><th>Why</th></tr></thead><tbody id="swaps"></tbody></table></div>
+      <div class="panel"><h2>Ingredients</h2><ul class="ing" id="ing"></ul><h2>Steps</h2><ol class="steps" id="steps"></ol>
+        <div class="row"><button class="ghost" id="copy">Copy recipe</button><button class="ghost" id="print">Print</button></div>
+        <p class="fine">Cooking for an allergy? Always check every product label yourself. Swaps can change cooking times and textures, so keep an eye on it the first time.</p></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const SAMPLE = "Classic Pancakes (serves 4)\n\nIngredients:\n1 1/2 cups all-purpose flour\n2 tbsp sugar\n2 tsp baking powder\n1/2 tsp salt\n1 1/4 cups milk\n1 egg\n3 tbsp melted butter\n\nSteps:\n1. Whisk the flour, sugar, baking powder and salt in a bowl.\n2. In another bowl, whisk the milk, egg and melted butter.\n3. Pour the wet into the dry and stir until just combined.\n4. Cook 1/4 cup of batter at a time on a hot buttered pan until bubbles form, then flip.";
+// Simple swaps for when the AI isn't ready yet
+const SWAPS = {
+  vegan: [[/\b(whole |skim |cow'?s )?milk\b/gi, "oat milk", "Plant milk works the same way in most recipes."], [/\bbutter\b/gi, "vegan butter", "Plant-based butter melts and bakes like butter."], [/\b(\d+\s+)?eggs?\b/gi, "$1flax egg (1 tbsp flax + 3 tbsp water)", "Flax gel binds like egg in baking."], [/\bhoney\b/gi, "maple syrup", "Honey comes from bees."], [/\b(cheddar |parmesan |mozzarella )?cheese\b/gi, "vegan cheese", "Plant-based cheese."], [/\b(heavy |whipping )?cream\b/gi, "coconut cream", "Rich and creamy without dairy."], [/\byogh?urt\b/gi, "plant yogurt", "Dairy-free yogurt."], [/\b(chicken|beef|pork|bacon|ham)\b/gi, "firm tofu or beans", "Plant protein instead of meat."]],
+  vegetarian: [[/\b(chicken|beef|pork|bacon|ham|sausage)\b/gi, "mushrooms or tofu", "A meaty texture without meat."], [/\b(chicken|beef) (stock|broth)\b/gi, "vegetable $2", "Same flavor base, no meat."], [/\b(fish|salmon|tuna|shrimp|prawns?)\b/gi, "chickpeas", "Plant protein instead of fish."]],
+  "gluten-free": [[/\b(all-purpose |plain |wheat |self-raising )?flour\b/gi, "gluten-free flour blend", "A 1:1 blend replaces wheat flour."], [/\bsoy sauce\b/gi, "tamari (gluten-free)", "Regular soy sauce contains wheat."], [/\b(bread ?crumbs|breadcrumbs)\b/gi, "gluten-free breadcrumbs", "Regular breadcrumbs contain wheat."], [/\bpasta\b/gi, "gluten-free pasta", "Made from rice or corn."]],
+  "dairy-free": [[/\b(whole |skim )?milk\b/gi, "oat milk", "No dairy."], [/\bbutter\b/gi, "dairy-free butter", "No dairy."], [/\b(cheddar |parmesan |mozzarella )?cheese\b/gi, "dairy-free cheese", "No dairy."], [/\b(heavy |whipping )?cream\b/gi, "coconut cream", "No dairy."], [/\byogh?urt\b/gi, "coconut yogurt", "No dairy."]],
+  "less sugar": [[/\b(\d+(?:\s+\d+\/\d+|\/\d+)?)\s*(cups?|tbsp|tablespoons?|tsp|teaspoons?)\s+(white |brown |granulated )?sugar\b/gi, (m, q, u) => "half of " + q + " " + u + " sugar", "Most recipes still taste sweet with less sugar."]],
+};
+let busy = false, last = null, ai = { ready: false, message: "Loading...", percent: null, error: null };
+$("sample").addEventListener("click", () => { $("recipe").value = SAMPLE; $("from").value = 4; $("to").value = 6; });
+
+// ---------- Scaling amounts with plain math ----------
+const UNI = { "\u00bd": 0.5, "\u00bc": 0.25, "\u00be": 0.75, "\u2153": 1 / 3, "\u2154": 2 / 3, "\u215b": 0.125 };
+function parseQty(s) { s = s.trim(); let m; if ((m = s.match(/^(\d+)\s+(\d+)\/(\d+)$/))) return +m[1] + m[2] / m[3]; if ((m = s.match(/^(\d+)\/(\d+)$/))) return m[1] / m[2]; if ((m = s.match(/^(\d+(?:\.\d+)?)\s*([\u00bd\u00bc\u00be\u2153\u2154\u215b])?$/))) return +m[1] + (m[2] ? UNI[m[2]] : 0); if (UNI[s] != null) return UNI[s]; return null; }
+function fmtQty(v) {
+  const whole = Math.floor(v + 1e-9), frac = v - whole, opts = [[0, ""], [0.125, "\u215b"], [0.25, "\u00bc"], [1 / 3, "\u2153"], [0.375, "\u215c"], [0.5, "\u00bd"], [0.625, "\u215d"], [2 / 3, "\u2154"], [0.75, "\u00be"], [0.875, "\u215e"], [1, ""]];
+  const best = opts.reduce((b, o) => (Math.abs(o[0] - frac) < Math.abs(b[0] - frac) ? o : b)); if (Math.abs(best[0] - frac) > 0.05) return String(Math.round(v * 10) / 10);
+  const w = best[0] === 1 ? whole + 1 : whole; return (w ? String(w) : "") + best[1] || "0";
+}
+const QTY = "(\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:\\.\\d+)?(?:\\s*[\\u00bd\\u00bc\\u00be\\u2153\\u2154\\u215b])?|[\\u00bd\\u00bc\\u00be\\u2153\\u2154\\u215b])";
+function scaleLine(line, f) {
+  if (f === 1) return { text: line, scaled: false };
+  const m = line.match(new RegExp("^(\\s*)" + QTY + "(\\s*[-\u2013to]+\\s*" + QTY + ")?(.*)$", "i")); if (!m) return { text: line, scaled: false };
+  const a = parseQty(m[2]); if (a == null) return { text: line, scaled: false };
+  let out = m[1] + fmtQty(a * f); if (m[3]) { const b = parseQty(m[4]); if (b != null) out += "\u2013" + fmtQty(b * f); }
+  return { text: out + m[5], scaled: true };
+}
+const factor = () => { const a = parseInt($("from").value, 10) || 1, b = parseInt($("to").value, 10) || a; return b / a; };
+
+// ---------- Rendering ----------
+function show(r, label) {
+  last = r; $("out").classList.remove("hidden"); $("rTitle").textContent = r.title; const f = factor();
+  $("scaleNote").textContent = f === 1 ? "" : "Amounts scaled \u00d7" + (Math.round(f * 100) / 100) + " (from " + $("from").value + " to " + $("to").value + " servings). Green dots = changed amount.";
+  const tb = $("swaps"); tb.innerHTML = ""; if (!r.swaps.length) tb.innerHTML = '<tr><td colspan="3">No swaps needed: this recipe already fits!</td></tr>';
+  r.swaps.forEach((s) => { const tr = document.createElement("tr"); const a = document.createElement("td"); a.append(Object.assign(document.createElement("s"), { textContent: s.from })); const b = document.createElement("td"); b.append(Object.assign(document.createElement("b"), { textContent: s.to })); const c = document.createElement("td"); c.textContent = s.why; tr.append(a, b, c); tb.append(tr); });
+  const ul = $("ing"); ul.innerHTML = ""; r.ingredients.forEach((i) => { const s = scaleLine(i, f), li = document.createElement("li"); li.textContent = s.text; if (s.scaled) li.className = "scaled"; ul.append(li); });
+  const ol = $("steps"); ol.innerHTML = ""; r.steps.forEach((s) => { const li = document.createElement("li"); li.textContent = s.replace(/^\d+[.)]\s*/, ""); ol.append(li); });
+  $("note").textContent = label;
+}
+function quickRewrite(text, diet) {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean), swaps = [], seen = new Set(); let title = lines[0] || "Recipe";
+  const out = lines.slice(1).map((l) => { let x = l;
+    (SWAPS[diet] || []).forEach(([re, to, why]) => {
+      const one = new RegExp(re.source, re.flags.replace("g", ""));   // a separate copy for rewriting one match
+      x = x.replace(re, (...args) => { const m = args[0], rep = typeof to === "function" ? to(...args) : m.replace(one, to);
+        if (!seen.has(m.toLowerCase())) { seen.add(m.toLowerCase()); swaps.push({ from: m.trim(), to: rep.trim(), why }); } return rep; });
+    }); return x; });
+  const isStep = (l) => /^\d+[.)]\s/.test(l) || (l.split(" ").length > 12 && !/^[\d\u00bd\u00bc\u00be\u2153\u2154\u215b]/.test(l)), isHead = (l) => /^(ingredients|steps|method|directions|instructions)\s*:?\s*$/i.test(l);
+  return { title: diet[0].toUpperCase() + diet.slice(1) + " " + title.replace(/\(serves \d+\)/i, "").trim(), ingredients: out.filter((l) => !isHead(l) && !isStep(l)), steps: out.filter((l) => !isHead(l) && isStep(l)), swaps };
+}
+async function go() {
+  if (busy) return; const recipe = $("recipe").value.trim(), diet = $("diet").value; if (recipe.length < 30) { $("note").textContent = "Paste a recipe first (or try the sample)."; return $("recipe").focus(); }
+  if (!ai.ready) { show(quickRewrite(recipe, diet), (ai.error ? "The AI isn't available" : "The AI is still loading" + (ai.percent != null ? " (" + ai.percent + "%)" : "")) + ", so this used simple word swaps. Try again soon for a smarter rewrite."); return; }
+  busy = true; $("go").classList.add("busy"); $("note").textContent = "Rewriting your recipe...";
+  try { const res = await fetch("/api/rewrite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ recipe, diet }) }); const r = await res.json(); if (!res.ok) throw new Error(r.error); show(r, "Rewritten by the on-device AI. Amounts scaled by the app."); }
+  catch (err) { show(quickRewrite(recipe, diet), "The AI had a problem (" + err.message + "), so this used simple word swaps."); }
+  busy = false; $("go").classList.remove("busy");
+}
+$("go").addEventListener("click", go); $("recipe").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) go(); });
+["from", "to"].forEach((id) => $(id).addEventListener("input", () => { if (last) show(last, $("note").textContent); }));
+$("copy").addEventListener("click", async () => { const t = $("rTitle").textContent + "\n\nIngredients:\n" + [...document.querySelectorAll("#ing li")].map((l) => "- " + l.textContent).join("\n") + "\n\nSteps:\n" + [...document.querySelectorAll("#steps li")].map((l, i) => i + 1 + ". " + l.textContent).join("\n"); try { await navigator.clipboard.writeText(t); $("copy").textContent = "Copied!"; } catch { $("copy").textContent = "Press Ctrl+C"; } setTimeout(() => ($("copy").textContent = "Copy recipe"), 1200); });
+$("print").addEventListener("click", () => window.print());
+
+async function checkStatus() {
+  try { ai = await (await fetch("/api/status")).json();
+    if (ai.error) return setStatus("AI error: " + ai.error + ". Simple swaps still work.", "err");
+    if (ai.ready) return setStatus("AI recipe rewriter ready. It runs on your device.", "ok");
+    setStatus(ai.message + (ai.percent != null ? " " + ai.percent + "%" : "") + " Simple swaps work meanwhile.");
+  } catch { ai = { ready: false, error: "the server can't be reached" }; setStatus("Can't reach the server. Open http://localhost:3074 and make sure npm start is running.", "err"); return; }
+  setTimeout(checkStatus, 1500);
+}
+function setStatus(t, c = "") { $("status").textContent = t; $("status").className = c; }
+checkStatus();
+</script>
+</body>
+</html>
